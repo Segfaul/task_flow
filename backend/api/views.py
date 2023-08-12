@@ -9,7 +9,7 @@ from drf_yasg.utils import swagger_auto_schema
 
 from .serializers import UserSerializer, TaskSerializer, DashboardSerializer, JoinRequestSerializer, DashboardUserSerializer
 from .permissions import IsAdminUser, IsAnonymousUser, IsDashboardCreator, IsDashboardUser
-from .models import User, Task, Dashboard, JoinRequest
+from .models import User, Task, Dashboard, JoinRequest, DashboardUser
 
 
 class LoginView(APIView):
@@ -21,10 +21,14 @@ class LoginView(APIView):
     permission_classes = [IsAnonymousUser]
 
     @swagger_auto_schema(
-        manual_parameters=[
-            openapi.Parameter('Username', openapi.IN_QUERY, description="username", type=openapi.TYPE_STRING),
-            openapi.Parameter('Password', openapi.IN_QUERY, description="password", type=openapi.TYPE_STRING)
-        ],
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'username': openapi.Schema(type=openapi.TYPE_STRING),
+                'password': openapi.Schema(type=openapi.TYPE_STRING)
+            },
+            required=['username', 'password']
+        ),
         responses={200: UserSerializer()}
     )
 
@@ -57,10 +61,14 @@ class RegisterView(APIView):
     permission_classes = [IsAnonymousUser]
 
     @swagger_auto_schema(
-        manual_parameters=[
-            openapi.Parameter('Username', openapi.IN_QUERY, description="username", type=openapi.TYPE_STRING),
-            openapi.Parameter('Password', openapi.IN_QUERY, description="password", type=openapi.TYPE_STRING)
-        ],
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'username': openapi.Schema(type=openapi.TYPE_STRING),
+                'password': openapi.Schema(type=openapi.TYPE_STRING)
+            },
+            required=['username', 'password']
+        ),
         responses={201: UserSerializer()}
     )
 
@@ -111,47 +119,58 @@ class UserListView(APIView):
 
 class TaskAddView(APIView):
     authentication_classes = [SessionAuthentication]
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsDashboardUser]
+
+    @swagger_auto_schema(
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'dashboard': openapi.Schema(type=openapi.TYPE_INTEGER, description='dashborad id'),
+                'description': openapi.Schema(type=openapi.TYPE_STRING, description='some text')
+            },
+            required=['dashboard', 'description']
+        ),
+        responses={200: TaskSerializer()}
+    )
 
     def post(self, request):
-        request.data['creator'] = request.user.id
+        dashboard_user = request.dashboard_user
+        request.data['creator'] = dashboard_user.id
         serializer = TaskSerializer(data=request.data)
+
         if serializer.is_valid():
-            serializer.save(creator=request.user)
+            serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
+
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 
 class TaskUpdateView(APIView):
     authentication_classes = [SessionAuthentication]
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsDashboardUser]
 
     def put(self, request, pk):
-        try:
-            task = Task.objects.get(pk=pk)
-        except Task.DoesNotExist:
-            return Response({'detail': 'Task not found.'}, status=status.HTTP_404_NOT_FOUND)
+        serializer = TaskSerializer(data=request.data)
 
-        request.data['description'] = task.description
-        request.data['creator'] = task.creator_id
-        request.data['dashboard'] = task.dashboard_id
-        serializer = TaskSerializer(task, data=request.data)
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+
 class TaskGetView(APIView):
     authentication_classes = [SessionAuthentication]
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsDashboardUser]
+
+    @swagger_auto_schema(
+        responses={200: TaskSerializer()}
+    )
 
     def get(self, request, pk):
-        try:
-            task = Task.objects.get(pk=pk)
-        except Task.DoesNotExist:
-            return Response({'detail': 'Task not found.'}, status=status.HTTP_404_NOT_FOUND)
-
+        task = Task.objects.get(pk=pk)
         serializer = TaskSerializer(task)
         return Response(serializer.data)
+
 
 class TaskDeleteView(APIView):
     authentication_classes = [SessionAuthentication]
@@ -166,24 +185,35 @@ class TaskDeleteView(APIView):
         task.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+
 class DashboardAddView(APIView):
     authentication_classes = [SessionAuthentication]
     permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'name': openapi.Schema(type=openapi.TYPE_STRING),
+                'description': openapi.Schema(type=openapi.TYPE_STRING)
+            },
+            required=['name', 'description']
+        ),
+        responses={201: DashboardSerializer()}
+    )
 
     def post(self, request):
         dashboard_serializer = DashboardSerializer(data=request.data)
 
         if dashboard_serializer.is_valid():
             dashboard_serializer.save()
-
-            user = request.user
             creator_data = {
-                'user': user.id,
+                'user': request.user.id,
                 'dashboard': dashboard_serializer.instance.id,
                 'role': 'creator',
             }
-
             creator_serializer = DashboardUserSerializer(data=creator_data)
+
             if creator_serializer.is_valid():
                 creator_serializer.save()
             else:
@@ -193,18 +223,20 @@ class DashboardAddView(APIView):
             return Response(dashboard_serializer.data, status=status.HTTP_201_CREATED)
         return Response(dashboard_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+
 class DashboardGetView(APIView):
     authentication_classes = [SessionAuthentication]
     permission_classes = [IsAuthenticated, IsDashboardUser]
 
-    def get(self, request, pk):
-        try:
-            dashboard = Dashboard.objects.get(pk=pk)
-        except Dashboard.DoesNotExist:
-            return Response({'detail': 'Dashboard not found.'}, status=status.HTTP_404_NOT_FOUND)
+    @swagger_auto_schema(
+        responses={200: DashboardSerializer()}
+    )
 
+    def get(self, request, pk):
+        dashboard = Dashboard.objects.get(pk=pk)
         serializer = DashboardSerializer(dashboard)
         return Response(serializer.data)
+
 
 class DashboardDeleteView(APIView):
     authentication_classes = [SessionAuthentication]
@@ -214,7 +246,7 @@ class DashboardDeleteView(APIView):
         dashboard = Dashboard.objects.get(pk=pk)
         dashboard.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
-    
+
 
 class JoinRequestActionView(APIView):
     authentication_classes = [SessionAuthentication]
