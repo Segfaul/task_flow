@@ -1,0 +1,24 @@
+@media screen and (max-width: 1024px) {
+    .home-preview {
+        flex-direction: column;
+        margin-top: 15%;
+    }
+
+    .home-pic {
+        height: 200px;
+    }
+  
+    .home-description {
+        max-width: 100%;
+        font-size: 25px;
+    }
+    
+    .toast-position {
+        top: 8.5% !important;
+        font-size: 13px;
+    }
+
+    .authentication {
+        margin-top: 40%;
+    }
+}
