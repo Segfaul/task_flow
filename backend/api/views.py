@@ -8,8 +8,8 @@ from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema
 
 from .serializers import UserSerializer, TaskSerializer, DashboardSerializer, JoinRequestSerializer, DashboardUserSerializer
-from .permissions import IsAdminUser, IsAnonymousUser, IsDashboardCreator, IsDashboardUser
-from .models import User, Task, Dashboard, JoinRequest, DashboardUser
+from .permissions import IsAdminUser, IsAnonymousUser, IsDashboardCreator, IsDashboardUser, IsTaskCreator
+from .models import User, Task, Dashboard, JoinRequest
 
 
 class LoginView(APIView):
@@ -119,23 +119,22 @@ class UserListView(APIView):
 
 class TaskAddView(APIView):
     authentication_classes = [SessionAuthentication]
-    permission_classes = [IsAuthenticated, IsDashboardUser]
+    permission_classes = [IsAuthenticated, IsTaskCreator]
 
     @swagger_auto_schema(
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
             properties={
                 'dashboard': openapi.Schema(type=openapi.TYPE_INTEGER, description='dashborad id'),
+                'title': openapi.Schema(type=openapi.TYPE_STRING, description='some text'),
                 'description': openapi.Schema(type=openapi.TYPE_STRING, description='some text')
             },
-            required=['dashboard', 'description']
+            required=['dashboard', 'title', 'description']
         ),
         responses={200: TaskSerializer()}
     )
 
     def post(self, request):
-        dashboard_user = request.dashboard_user
-        request.data['creator'] = dashboard_user.id
         serializer = TaskSerializer(data=request.data)
 
         if serializer.is_valid():
@@ -147,10 +146,26 @@ class TaskAddView(APIView):
 
 class TaskUpdateView(APIView):
     authentication_classes = [SessionAuthentication]
-    permission_classes = [IsAuthenticated, IsDashboardUser]
+    permission_classes = [IsAuthenticated, IsTaskCreator]
+
+    @swagger_auto_schema(
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'title': openapi.Schema(type=openapi.TYPE_STRING, description='some text'),
+                'description': openapi.Schema(type=openapi.TYPE_STRING, description='some text'),
+                'answer': openapi.Schema(type=openapi.TYPE_STRING, description='some text'),
+                'resolver': openapi.Schema(type=openapi.TYPE_INTEGER, description='Resolver dashboard_user.id', default='null')
+            },
+            required=['title', 'description']
+        ),
+        responses={200: TaskSerializer()}
+    )
 
     def put(self, request, pk):
-        serializer = TaskSerializer(data=request.data)
+        task = request.task
+        request.data['id'] = task.id
+        serializer = TaskSerializer(task, data=request.data)
 
         if serializer.is_valid():
             serializer.save()
@@ -160,28 +175,24 @@ class TaskUpdateView(APIView):
 
 class TaskGetView(APIView):
     authentication_classes = [SessionAuthentication]
-    permission_classes = [IsAuthenticated, IsDashboardUser]
+    permission_classes = [IsAuthenticated, IsTaskCreator]
 
     @swagger_auto_schema(
         responses={200: TaskSerializer()}
     )
 
     def get(self, request, pk):
-        task = Task.objects.get(pk=pk)
+        task = request.task
         serializer = TaskSerializer(task)
         return Response(serializer.data)
 
 
 class TaskDeleteView(APIView):
     authentication_classes = [SessionAuthentication]
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsTaskCreator]
 
     def delete(self, request, pk):
-        try:
-            task = Task.objects.get(pk=pk, creator=request.user)
-        except Task.DoesNotExist:
-            return Response({'detail': 'Task not found.'}, status=status.HTTP_404_NOT_FOUND)
-
+        task = request.task
         task.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -194,10 +205,10 @@ class DashboardAddView(APIView):
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
             properties={
-                'name': openapi.Schema(type=openapi.TYPE_STRING),
+                'title': openapi.Schema(type=openapi.TYPE_STRING),
                 'description': openapi.Schema(type=openapi.TYPE_STRING)
             },
-            required=['name', 'description']
+            required=['title', 'description']
         ),
         responses={201: DashboardSerializer()}
     )
@@ -233,7 +244,7 @@ class DashboardGetView(APIView):
     )
 
     def get(self, request, pk):
-        dashboard = Dashboard.objects.get(pk=pk)
+        dashboard = request.dashboard
         serializer = DashboardSerializer(dashboard)
         return Response(serializer.data)
 
@@ -243,7 +254,7 @@ class DashboardDeleteView(APIView):
     permission_classes = [IsAuthenticated, IsDashboardCreator]
 
     def delete(self, request, pk):
-        dashboard = Dashboard.objects.get(pk=pk)
+        dashboard = request.dashboard
         dashboard.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 

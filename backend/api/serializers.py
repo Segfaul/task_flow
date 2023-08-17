@@ -2,7 +2,7 @@ from rest_framework import serializers
 from django.contrib.auth import authenticate
 
 from .models import User, Task, Dashboard, DashboardUser, JoinRequest
-from .validators import validate_user
+from .validators import validate_user, validate_task
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -38,6 +38,11 @@ class UserSerializer(serializers.ModelSerializer):
     
 
 class TaskSerializer(serializers.ModelSerializer):
+    def validate(self, attrs):
+        instance = self.instance
+        validate_task(instance, attrs)
+        return attrs
+
     class Meta:
         model = Task
         fields = ('__all__')

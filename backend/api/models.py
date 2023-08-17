@@ -1,4 +1,7 @@
 from django.db import models
+from django.db.models.signals import post_save, post_delete
+from django.dispatch import receiver
+from django.utils import timezone
 from django.contrib.auth.base_user import BaseUserManager
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
 
@@ -26,11 +29,11 @@ class User(AbstractBaseUser, PermissionsMixin):
 
 
 class Dashboard(models.Model):
-    name = models.CharField(max_length=100, unique=True)
+    title = models.CharField(max_length=100, unique=True)
     description = models.TextField(blank=True)
 
     def __str__(self):
-        return f'Dashboard {self.name}'
+        return f'Dashboard {self.title}'
 
 
 class DashboardUser(models.Model):
@@ -40,18 +43,25 @@ class DashboardUser(models.Model):
         ('user', 'User'),
     ]
     user = models.ForeignKey(User, on_delete=models.CASCADE)
-    dashboard = models.ForeignKey(Dashboard, on_delete=models.CASCADE, related_name='users')
+    dashboard = models.ForeignKey(Dashboard, on_delete=models.CASCADE)
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='user')
-    last_activity = models.DateTimeField(auto_now=True)
+    last_activity = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return f'DashboardUser {self.id}'
 
 
 class JoinRequest(models.Model):
+    REQUEST_STATES = [
+        ('pending', 'Pending'),
+        ('accepted', 'Accepted'),
+        ('rejected', 'Rejected')
+    ]
+
     user = models.ForeignKey(User, on_delete=models.CASCADE)
-    dashboard = models.ForeignKey(Dashboard, on_delete=models.CASCADE, related_name='join_requests')
-    is_accepted = models.BooleanField(default=False)
+    dashboard = models.ForeignKey(Dashboard, on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True)
+    state = models.CharField(max_length=10, choices=REQUEST_STATES, default='pending')
 
     def __str__(self):
         return f'Join Request {self.id}'
@@ -66,9 +76,10 @@ class Task(models.Model):
 
     state = models.CharField(max_length=10, choices=TASK_STATES, default='created')
 
-    creator = models.ForeignKey(DashboardUser, on_delete=models.CASCADE, related_name='created_tasks')
-    resolver = models.ForeignKey(DashboardUser, on_delete=models.SET_NULL, null=True, blank=True, related_name='resolved_tasks')
+    creator = models.ForeignKey(DashboardUser, on_delete=models.CASCADE)
+    resolver = models.ForeignKey(DashboardUser, on_delete=models.SET_NULL, null=True, blank=True)
 
+    title = models.TextField(max_length=45)
     description = models.TextField()
     answer = models.TextField(blank=True)
 
@@ -79,3 +90,10 @@ class Task(models.Model):
 
     def __str__(self):
         return f'Task {self.id}'
+
+
+@receiver([post_save, post_delete], sender=Task)
+def update_last_activity_for_task(sender, instance, **kwargs):
+    dashboard_user = instance.creator
+    dashboard_user.last_activity = timezone.now()
+    dashboard_user.save()
